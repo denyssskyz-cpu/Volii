@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Spike Arena 3D</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: sans-serif; }
+        #score { position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+                 color: white; font-size: 32px; font-weight: bold; text-shadow: 2px 2px 4px #000; }
+        #info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+                color: white; font-size: 14px; background: rgba(0,0,0,0.5); padding: 8px 16px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div id="score">0 - 0</div>
+    <div id="info">WASD: Gerak | SPACE: Lompat | Klik: Smash</div>
+    <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 20, 50);
+
+        const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 100);
+        camera.position.set(0, 8, 14);
+        camera.lookAt(0, 1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(innerWidth, innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const sun = new THREE.DirectionalLight(0xffffff, 1);
+        sun.position.set(10, 20, 10);
+        sun.castShadow = true;
+        scene.add(sun);
+
+        // Lapangan voli
+        const court = new THREE.Mesh(
+            new THREE.PlaneGeometry(16, 8),
+            new THREE.MeshStandardMaterial({ color: 0xE8B86D })
+        );
+        court.rotation.x = -Math.PI/2;
+        court.receiveShadow = true;
+        scene.add(court);
+
+        // Garis tengah & net
+        const net = new THREE.Mesh(
+            new THREE.BoxGeometry(0.05, 1.5, 8),
+            new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })
+        );
+        net.position.set(0, 0.75, 0);
+        scene.add(net);
+
+        // Bola
+        const ball = new THREE.Mesh(
+            new THREE.SphereGeometry(0.4, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0xff6600 })
+        );
+        ball.castShadow = true;
+        scene.add(ball);
+
+        // Pemain (kotak sederhana)
+        const player = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 1.6, 0.8),
+            new THREE.MeshStandardMaterial({ color: 0x2266ff })
+        );
+        player.position.set(0, 0.8, 3);
+        player.castShadow = true;
+        scene.add(player);
+
+        // AI lawan
+        const enemy = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, 1.6, 0.8),
+            new THREE.MeshStandardMaterial({ color: 0xff2266 })
+        );
+        enemy.position.set(0, 0.8, -3);
+        enemy.castShadow = true;
+        scene.add(enemy);
+
+        // Fisika bola
+        const ballVel = new THREE.Vector3(0, 0, 0);
+        const gravity = -20;
+
+        // Input
+        const keys = {};
+        addEventListener('keydown', e => keys[e.code] = true);
+        addEventListener('keyup', e => keys[e.code] = false);
+
+        // Lompat
+        let playerVelY = 0;
+        let grounded = true;
+
+        // Klik untuk smash
+        addEventListener('mousedown', () => {
+            const dist = player.position.distanceTo(ball.position);
+            if (dist < 2.5) {
+                ballVel.set((Math.random()-0.5)*10, 12, -12);
+            }
+        });
+
+        // Reset bola
+        function resetBall() {
+            ball.position.set(0, 5, 0);
+            ballVel.set(0, 0, 0);
+        }
+        resetBall();
+
+        // Loop
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.05);
+
+            // Gerak pemain
+            const speed = 8;
+            if (keys['KeyW']) player.position.z -= speed * dt;
+            if (keys['KeyS']) player.position.z += speed * dt;
+            if (keys['KeyA']) player.position.x -= speed * dt;
+            if (keys['KeyD']) player.position.x += speed * dt;
+            // Batasi area
+            player.position.x = Math.max(-7.5, Math.min(7.5, player.position.x));
+            player.position.z = Math.max(0.5, Math.min(3.5, player.position.z));
+
+            // Lompat
+            if (keys['Space'] && grounded) {
+                playerVelY = 10;
+                grounded = false;
+            }
+            playerVelY += gravity * dt;
+            player.position.y += playerVelY * dt;
+            if (player.position.y < 0.8) {
+                player.position.y = 0.8;
+                playerVelY = 0;
+                grounded = true;
+            }
+
+            // Fisika bola
+            ballVel.y += gravity * dt;
+            ball.position.addScaledVector(ballVel, dt);
+
+            // Pantul lantai
+            if (ball.position.y < 0.4) {
+                ball.position.y = 0.4;
+                ballVel.y *= -0.7;
+                ballVel.x *= 0.9;
+                ballVel.z *= 0.9;
+            }
+
+            // Pantul dinding
+            if (Math.abs(ball.position.x) > 8) ballVel.x *= -0.8;
+            if (Math.abs(ball.position.z) > 4) ballVel.z *= -0.8;
+
+            // Net collision sederhana (bola tidak lewat)
+            if (Math.abs(ball.position.x) < 0.3 && Math.abs(ball.position.z) < 0.2 &&
+                ball.position.y < 1.5) {
+                ballVel.z *= -0.8;
+            }
+
+            // AI bergerak ke arah bola
+            const aiTargetX = ball.position.x * 0.8;
+            enemy.position.x += (aiTargetX - enemy.position.x) * 2 * dt;
+            enemy.position.x = Math.max(-7.5, Math.min(7.5, enemy.position.x));
+
+            // AI smash saat bola dekat
+            if (enemy.position.distanceTo(ball.position) < 2 && ball.position.z < -1) {
+                ballVel.set((Math.random()-0.5)*8, 10, 14);
+            }
+
+            // Reset bola jika jatuh jauh
+            if (ball.position.y < -5 || ball.position.z > 8 || ball.position.z < -8) {
+                resetBall();
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Resize
+        addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(innerWidth, innerHeight);
+        });
+    </script>
+</body>
+</html>
